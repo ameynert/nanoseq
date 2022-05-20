@@ -7,7 +7,7 @@ process DEEPVARIANT {
         'docker.io/google/deepvariant:1.3.0' }"
 
     input:
-    tuple val(meta), path(sizes), val(is_transcripts), path(input), path(index)
+    tuple val(meta), path(input), path(index), path(intervals)
     path(fasta)
     path(fai)
 
@@ -22,7 +22,7 @@ process DEEPVARIANT {
     script:
     def args    = task.ext.args ?: ''
     prefix      = task.ext.prefix ?: "${meta.id}"
-    //def regions = intervals ? "--regions ${intervals}" : ""
+    def regions = intervals ? "--regions ${intervals}" : ""
 
     """
     /opt/deepvariant/bin/run_deepvariant \\
@@ -31,6 +31,7 @@ process DEEPVARIANT {
         --output_vcf=${prefix}.vcf.gz \\
         --output_gvcf=${prefix}.g.vcf.gz \\
         ${args} \\
+        ${regions} \\
         --num_shards=${task.cpus}
 
     cat <<-END_VERSIONS > versions.yml

@@ -132,6 +132,7 @@ include { MULTIQC               } from '../modules/local/multiqc'
 
 include { INPUT_CHECK                      } from '../subworkflows/local/input_check'
 include { PREPARE_GENOME                   } from '../subworkflows/local/prepare_genome'
+include { PREPARE_INTERVALS                } from '../subworkflows/local/prepare_intervals'
 include { QCBASECALL_PYCOQC_NANOPLOT       } from '../subworkflows/local/qcbasecall_pycoqc_nanoplot'
 include { QCFASTQ_NANOPLOT_FASTQC          } from '../subworkflows/local/qcfastq_nanoplot_fastqc'
 include { ALIGN_GRAPHMAP2                  } from '../subworkflows/local/align_graphmap2'
@@ -334,6 +335,17 @@ workflow NANOSEQ{
         ch_fai         = PREPARE_GENOME.out.ch_fai
         ch_software_versions = ch_software_versions.mix(PREPARE_GENOME.out.samtools_version.first().ifEmpty(null))
         ch_software_versions = ch_software_versions.mix(PREPARE_GENOME.out.gtf2bed_version.first().ifEmpty(null))
+
+        /*
+         * SUBWORKFLOW: Prepare intervals
+         */
+        PREPARE_INTERVALS( ch_fai.map{ it [1]} )
+        ch_intervals_bed_combined        = (params.intervals) ? Channel.fromPath(params.intervals).collect() : []
+        ch_intervals_bed_combined_gz_tbi = PREPARE_INTERVALS.out.intervals_combined_bed_gz_tbi.collect()
+        ch_intervals_bed_combined_gz     = ch_intervals_bed_combined_gz_tbi.map{ bed, tbi -> [bed]}.collect()
+        ch_intervals                     = PREPARE_INTERVALS.out.intervals_bed
+        ch_intervals_bed_gz_tbi          = PREPARE_INTERVALS.out.intervals_bed_gz_tbi
+
         if (params.aligner == 'minimap2') {
 
             /*
@@ -362,12 +374,16 @@ workflow NANOSEQ{
         ch_software_versions = ch_software_versions.mix(BAM_SORT_INDEX_SAMTOOLS.out.samtools_versions.first().ifEmpty(null))
         ch_samtools_multiqc  = BAM_SORT_INDEX_SAMTOOLS.out.sortbam_stats_multiqc.ifEmpty([])
 
+        ch_view_sortbam.map{ it -> [ it[0], it[3], it[4] ] }.set{ ch_input_bam }
+        ch_input_bam.view()
+
         if (params.call_variants && params.protocol == 'DNA') {
+
             /*
             * SUBWORKFLOW: Short variant calling
             */
             if (!params.skip_vc) {
-                SHORT_VARIANT_CALLING ( ch_view_sortbam, ch_fasta.map{ it [1] }, ch_fai.map{ it [1] } )
+                SHORT_VARIANT_CALLING ( ch_input_bam, ch_fasta.map{ it [1] }, ch_fai.map{ it [1] }, ch_intervals, ch_intervals_bed_gz_tbi, ch_intervals_bed_combined_gz_tbi, ch_intervals_bed_combined_gz )
                 ch_software_versions = ch_software_versions.mix(SHORT_VARIANT_CALLING.out.ch_versions.first().ifEmpty(null))
             }
 

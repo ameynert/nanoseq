@@ -1,10 +1,10 @@
-process PEPPER_MARGIN_DEEPVARIANT {
+process PEPPER_MARGIN_DEEPVARIANT_GPU {
     tag "$meta.id"
     label 'process_high'
 
     container "${ workflow.containerEngine == 'singularity' && !task.ext.singularity_pull_docker_container ?
-        'docker.io/kishwars/pepper_deepvariant:r0.8' :
-        'docker.io/kishwars/pepper_deepvariant:r0.8' }"
+        'docker.io/kishwars/pepper_deepvariant:r0.8-gpu' :
+        'docker.io/kishwars/pepper_deepvariant:r0.8-gpu' }"
 
     input:
     tuple val(meta), path(input), path(index), path(intervals)
@@ -35,6 +35,7 @@ process PEPPER_MARGIN_DEEPVARIANT {
         -p "${prefix}" \\
         -t ${task.cpus} \\
         ${regions} \\
+        -gpu \\
         $args
 
     cat <<-END_VERSIONS > versions.yml

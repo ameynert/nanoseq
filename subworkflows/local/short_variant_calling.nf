@@ -5,10 +5,12 @@
 include { MEDAKA_VARIANT                        } from '../../modules/local/medaka_variant'
 include { TABIX_BGZIP as MEDAKA_BGZIP_VCF       } from '../../modules/nf-core/modules/tabix/bgzip/main'
 include { TABIX_TABIX as MEDAKA_TABIX_VCF       } from '../../modules/nf-core/modules/tabix/tabix/main'
-include { DEEPVARIANT                           } from '../../modules/local/deepvariant'
-include { TABIX_TABIX as DEEPVARIANT_TABIX_VCF  } from '../../modules/nf-core/modules/tabix/tabix/main'
-include { TABIX_TABIX as DEEPVARIANT_TABIX_GVCF } from '../../modules/nf-core/modules/tabix/tabix/main'
+//include { DEEPVARIANT                           } from '../../modules/local/deepvariant'
+//include { TABIX_TABIX as DEEPVARIANT_TABIX_VCF  } from '../../modules/nf-core/modules/tabix/tabix/main'
+//include { TABIX_TABIX as DEEPVARIANT_TABIX_GVCF } from '../../modules/nf-core/modules/tabix/tabix/main'
 include { PEPPER_MARGIN_DEEPVARIANT             } from '../../modules/local/pepper_margin_deepvariant'
+
+include { RUN_DEEPVARIANT                       } from '../../subworkflows/local/vc_deepvariant'
 
 workflow SHORT_VARIANT_CALLING {
 
@@ -16,6 +18,10 @@ workflow SHORT_VARIANT_CALLING {
     ch_view_sortbam
     ch_fasta
     ch_fai
+    ch_intervals
+    ch_intervals_bed_gz_tbi
+    ch_intervals_bed_combine_gz_tbi
+    ch_intervals_bed_combine_gz
 
     main:
     ch_short_calls_vcf              = Channel.empty()
@@ -23,6 +29,23 @@ workflow SHORT_VARIANT_CALLING {
     ch_short_calls_gvcf             = Channel.empty()
     ch_short_calls_gvcf_tbi         = Channel.empty()
     ch_versions                     = Channel.empty()
+
+    /*
+     * Remap channels with intervals
+     */
+    view_sortbam_intervals = ch_view_sortbam.combine(ch_intervals)
+        .map{ meta, input, index, intervals, num_intervals ->
+            new_meta = meta.clone()
+            // If either no scatter/gather is done, i.e. no interval (0) or one interval (1), then don't rename samples
+            new_meta.sample = meta.id
+            new_meta.id = num_intervals <= 1 ? meta.id : meta.id + "_" + intervals.baseName
+            new_meta.num_intervals = num_intervals
+
+            //If no interval file provided (0) then add empty list
+            intervals_new = num_intervals == 0 ? [] : intervals
+
+            [new_meta, input, index, intervals_new]
+        }
 
     /*
      * Call short variants
@@ -50,28 +73,10 @@ workflow SHORT_VARIANT_CALLING {
         ch_versions = ch_versions.mix(tabix_version = MEDAKA_TABIX_VCF.out.versions)
 
     } else if (params.variant_caller == 'deepvariant') {
-
-        /*
-        * Call variants with deepvariant
-        */
-        DEEPVARIANT( ch_view_sortbam, ch_fasta, ch_fai )
-        ch_short_calls_vcf  = DEEPVARIANT.out.vcf
-        ch_short_calls_gvcf = DEEPVARIANT.out.gvcf
-        ch_versions = ch_versions.mix(DEEPVARIANT.out.versions)
-
-        /*
-         * Index deepvariant vcf.gz
-         */
-        DEEPVARIANT_TABIX_VCF( ch_short_calls_vcf )
-        ch_short_calls_vcf_tbi  = DEEPVARIANT_TABIX_VCF.out.tbi
-        ch_versions = ch_versions.mix(DEEPVARIANT_TABIX_VCF.out.versions)
-
-        /*
-         * Index deepvariant g.vcf.gz
-         */
-        DEEPVARIANT_TABIX_GVCF( ch_short_calls_gvcf )
-        ch_short_calls_gvcf_tbi  = DEEPVARIANT_TABIX_GVCF.out.tbi
-        ch_versions = ch_versions.mix(DEEPVARIANT_TABIX_VCF.out.versions)
+        RUN_DEEPVARIANT(view_sortbam_intervals, ch_fasta, ch_fai, ch_intervals, ch_intervals_bed_gz_tbi, ch_intervals_bed_combine_gz_tbi, ch_intervals_bed_combine_gz)
+        
+        ch_short_calls_vcf = RUN_DEEPVARIANT.out.deepvariant_vcf
+        ch_versions        = ch_versions.mix(RUN_DEEPVARIANT.out.versions)
 
     } else {
 
